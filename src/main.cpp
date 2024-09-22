@@ -4,6 +4,8 @@
 #include <WiFi.h>
 
 
+// #define WIFI_SSID "GlobeAtHome_434FB"
+// #define WIFI_PASSWORD "414EDDF3"
 
 
 
@@ -12,8 +14,8 @@ constexpr unsigned char RELAY_PIN_1 = 16, RELAY_PIN_2 = 17;
 
 
 bool relayState1 = false, relayState2 = false, lcdState = true;
-const char* SSID = "ALMA";
-const char* PASSWORD = "(EVIL)(ALMA)(1322)";
+const char* SSID = "GlobeAtHome_434FB";
+const char* PASSWORD = "414EDDF3";
 
 constexpr unsigned char EVNT_NOEVNT = 0b00000000;
 constexpr unsigned char EVNT_UPLCD = 0b00000001;
