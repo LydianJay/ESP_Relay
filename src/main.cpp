@@ -5,7 +5,8 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 #include <DHT_U.h>
-
+#include <SPIFFS.h>
+#include <FS.h>
 // #define WIFI_SSID "GlobeAtHome_434FB"
 // #define WIFI_PASSWORD "414EDDF3"
 
@@ -18,6 +19,8 @@ constexpr uint8_t pinDHT = 19;
 bool relayState1 = false, relayState2 = false, lcdState = true;
 const char* SSID = "GlobeAtHome_434FB";
 const char* PASSWORD = "414EDDF3";
+
+String serverIP;
 
 constexpr unsigned char EVNT_NOEVNT = 0b00000000;
 constexpr unsigned char EVNT_UPLCD = 0b00000001;
@@ -72,6 +75,28 @@ void getTemp() {
   
 }
 
+
+
+
+
+void readFile(const char* path) {
+  File file = SPIFFS.open(path, FILE_READ);
+  if(!file || file.isDirectory()) return;
+  serverIP = file.readString();
+  Serial.println("File Read!");
+  file.close();
+}
+
+
+void writeData(const char* path, const char* data) {
+  File file = SPIFFS.open(path, FILE_WRITE);
+  if(!file) return;
+  file.print(data);
+  Serial.println("File Written!");
+  file.close();
+}
+
+
 void setup() {
   Serial.begin(115200);
   initDHT();
@@ -91,6 +116,8 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(SSID, PASSWORD);
 
+  
+
   while(WiFi.status() != WL_CONNECTED){
     delay(150);
   }
@@ -98,11 +125,21 @@ void setup() {
   lcd.clear();
   lcd.setCursor(0,1);
   lcd.print(WiFi.localIP());
+  
+
+
+  if(SPIFFS.begin(true)) {
+    readFile("/server.cfg");
+   
+    server.begin(); 
+  } else {
+    Serial.println("SPIFFS not initiated");
+    lcd.setCursor(0,0);
+    lcd.print("SPIFFS ERROR");
+  }
   lcd.display();
   lcd.backlight();
 
-
-  server.begin(); 
 }
 
 void loop() {
@@ -120,10 +157,35 @@ void loop() {
       byte buffer[8] = {};
       
       if(client.available()){
-        client.readBytes(buffer, 8);
-       
-        uint64_t* b = (uint64_t*)buffer;
-        handleData(buffer, 8, &client);
+        
+        size_t count = client.readBytes(buffer, 8);
+        
+        if(count >= 4){
+          //Serial.println((char *)buffer);
+          serverIP = "";
+
+          for (size_t i = 0; i < 4; i++) {
+            Serial.println(String(buffer[i + 4], 16));
+          }
+          
+
+          // uint32_t* ptr = (uint32_t*)buffer;
+          // uint32_t ipV4 = *ptr;
+          // uint32_t bitmask = 0xFF;
+          // Serial.println(ipV4);
+          // for(int i = 0; i < 4; i++){
+          //   uint8_t r = ipV4 & bitmask;
+          //   bitmask <<= 8;
+          //   Serial.println("byte: " + String(r) + "  BitMask:" + String(bitmask, 2) );
+          //   serverIP += String(r) + (i == 3) ? "" : "."; 
+          // }
+          
+          // writeData("/server.cfg", serverIP.c_str());
+          Serial.println(serverIP);
+        } else {
+          handleData(buffer, 8, &client);
+        }
+
         
       }
 
@@ -379,7 +441,7 @@ void handleData(byte* buffer, uint32_t sz, WiFiClient* clPtr){
     lcd.noBacklight(); 
     updateRelayStateToClients(clPtr);
   }
-  else{
+  else {
     
     setRelay(data);
     updateRelayStateToClients(clPtr); 
