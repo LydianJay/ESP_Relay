@@ -2,7 +2,9 @@
 #include <Wire.h> 
 #include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
-
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <DHT_U.h>
 
 // #define WIFI_SSID "GlobeAtHome_434FB"
 // #define WIFI_PASSWORD "414EDDF3"
@@ -11,7 +13,7 @@
 
 
 constexpr unsigned char RELAY_PIN_1 = 16, RELAY_PIN_2 = 17;
-
+constexpr uint8_t pinDHT = 19;
 
 bool relayState1 = false, relayState2 = false, lcdState = true;
 const char* SSID = "GlobeAtHome_434FB";
@@ -31,15 +33,49 @@ unsigned long long prevTime = 0;
 unsigned long long elapseTime = 0, secondsAccum = 0, minuteAccum = 0;
 char timeRSec1 = 0, timeRSec2 = 0;
 unsigned short timeRMin1 = 0, timeRMin2 = 0;
+sensors_event_t sensorEvent;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 WiFiServer server(1322);
+DHT_Unified dht(pinDHT, DHT11);
 void handleData(byte* buffer, uint32_t sz, WiFiClient*);
 void handleEvent(WiFiClient*);
 void updateLCD();
 void updateRelayStateToClients(WiFiClient*);
+void initDHT() {
+  dht.begin();
+  sensor_t sensor;
+  dht.temperature().getSensor(&sensor);
+  Serial.println(F("------------------------------------"));
+  Serial.println(F("Temperature Sensor"));
+  Serial.print  (F("Sensor Type: ")); Serial.println(sensor.name);
+  Serial.print  (F("Driver Ver:  ")); Serial.println(sensor.version);
+  Serial.print  (F("Unique ID:   ")); Serial.println(sensor.sensor_id);
+  Serial.print  (F("Max Value:   ")); Serial.print(sensor.max_value); Serial.println(F("°C"));
+  Serial.print  (F("Min Value:   ")); Serial.print(sensor.min_value); Serial.println(F("°C"));
+  Serial.print  (F("Resolution:  ")); Serial.print(sensor.resolution); Serial.println(F("°C"));
+  Serial.println(F("------------------------------------"));
+  
+}
+
+void getTemp() {
+
+  
+  dht.temperature().getEvent(&sensorEvent);
+  if (isnan(sensorEvent.temperature)) {
+    Serial.println(F("Error reading temperature!"));
+  }
+  else {
+    Serial.print(F("Temperature: "));
+    Serial.print(sensorEvent.temperature);
+    Serial.println(F("°C"));
+  }
+  
+}
+
 void setup() {
   Serial.begin(115200);
-  
+  initDHT();
+  getTemp();
   lcd.init();
   
   lcd.backlight();
@@ -94,6 +130,7 @@ void loop() {
 
       if(secondsAccum >= 1000){
         secondsAccum = 0;
+        getTemp();
 
         if(timer1Enable) {
           if(timeRMin1 > 0 || timeRSec1 > 0){
@@ -296,55 +333,56 @@ void setRelay(uint64_t data){
 
 void updateRelayStateToClients(WiFiClient* clPtr){
   
+  
   uint64_t dataPacket = 0;
   uint8_t rState1 = relayState1 ? 0b00000001 : 0b00000000;
   uint8_t rState2 = relayState2 ? 0b00000010 : 0b00000000;
   uint8_t lcdByte = lcdState ? 0b00000100 : 0b00000000;
+
+  
   
   dataPacket |= (((rState1 | rState2) | lcdByte));
   String val(dataPacket);
-  clPtr->write(val.c_str()); 
-
-
+  clPtr->write(String(val + "," + String(sensorEvent.temperature)).c_str()); 
 }
 
 
 
 void handleData(byte* buffer, uint32_t sz, WiFiClient* clPtr){
      
-      String val((const uint8_t*)buffer, 8);
+  String val((const uint8_t*)buffer, 8);
 
-      
-      uint64_t data = val.toInt();
-      
-      if( data & 0x0100){
-        timer1Enable = true;
-        timeRMin1 = data & 0xFF;
-        setRelay(0b01);
-        
-      }
-      else if( data & 0x0200){
-        timer2Enable = true;
-        timeRMin2 = data & 0xFF;
-        setRelay(0b11);
-      }
-      else if(data & 0b00001000){
-       
-        lcd.display();
-        lcd.backlight();
-        lcdState = true;
-        updateRelayStateToClients(clPtr);
-      }
-      else if (data & 0b00000100){
-        lcdState = false;
-        lcd.noDisplay();
-        lcd.noBacklight(); 
-        updateRelayStateToClients(clPtr);
-      }
-      else{
-        
-        setRelay(data);
-        updateRelayStateToClients(clPtr); 
-      }
+  
+  uint64_t data = val.toInt();
+  
+  if( data & 0x0100){
+    timer1Enable = true;
+    timeRMin1 = data & 0xFF;
+    setRelay(0b01);
+    
+  }
+  else if( data & 0x0200){
+    timer2Enable = true;
+    timeRMin2 = data & 0xFF;
+    setRelay(0b11);
+  }
+  else if(data & 0b00001000){
+    
+    lcd.display();
+    lcd.backlight();
+    lcdState = true;
+    updateRelayStateToClients(clPtr);
+  }
+  else if (data & 0b00000100){
+    lcdState = false;
+    lcd.noDisplay();
+    lcd.noBacklight(); 
+    updateRelayStateToClients(clPtr);
+  }
+  else{
+    
+    setRelay(data);
+    updateRelayStateToClients(clPtr); 
+  }
 }
 
